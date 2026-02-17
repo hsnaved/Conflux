@@ -24,7 +24,7 @@ hpack==4.1.0
 httpcore==1.0.9
 httpx==0.28.1
 httpx-sse==0.4.3
-huggingface_hub==0.36.2
+huggingface_hub==0.15.1
 hyperframe==6.1.0
 idna==3.11
 Jinja2==3.1.6
@@ -48,3 +48,7 @@ numpy==2.0.2
 openai==2.20.0
 orjson==3.11.5
 packaging
+atlassian-python-api==3.41.0
+beautifulsoup4==4.12.2
+sentence-transformers==2.2.2
+qdrant-client

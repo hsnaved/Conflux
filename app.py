@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from config import APP_HOST, APP_PORT, SEARCH_LIMIT, UPLOAD_DIR
-# from services.rag import answer_question, ingest_pdf
+from services.rag import answer_question, ingest_pdf, ingest_confluence
 
 app = FastAPI(title="Conflux RAG API", version="0.1.0")
 
@@ -17,18 +17,19 @@ class StoreResponse(BaseModel):
     filename: str
 
 
-# class QueryRequest(BaseModel):
-# question: str
-# limit: int | None = None
-
-
 class QueryResponse(BaseModel):
     answer: str
     retrieved_chunks: int
 
 
+class QueryRequest(BaseModel):
+    question: str
+    limit: int | None = None
+
+
 @app.on_event("startup")
-async def ensure_upload_dir() -> None: UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+async def ensure_upload_dir() -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # @app.post("/upload_pdf/", response_model=UploadResponse)
@@ -70,10 +71,24 @@ async def upload_and_store(
     return StoreResponse(message="File stored successfully", filename=file.filename)
 
 
-# @app.post("/query/", response_model=QueryResponse)
-# async def query_pdf(payload: QueryRequest) -> QueryResponse:
-    # answer, retrieved = answer_question(payload.question, limit=payload.limit or SEARCH_LIMIT)
-    # return QueryResponse(answer=answer, retrieved_chunks=retrieved)
+@app.post("/ingest_confluence/", response_model=UploadResponse)
+async def ingest_confluence_data() -> UploadResponse:
+    """Fetch pages from Confluence and ingest them into the vector store."""
+    try:
+        chunks_added = ingest_confluence()
+        return UploadResponse(message=f"Stored {chunks_added} chunks from Confluence", chunks=chunks_added)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Failed to ingest Confluence pages: {exc}") from exc
+
+
+@app.post("/query/", response_model=QueryResponse)
+async def query_vector_store(payload: QueryRequest) -> QueryResponse:
+    """Query the vector store with a natural language question."""
+    try:
+        answer, retrieved = answer_question(payload.question, limit=payload.limit or SEARCH_LIMIT)
+        return QueryResponse(answer=answer, retrieved_chunks=retrieved)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Failed to answer question: {exc}") from exc
 
 
 if __name__ == "__main__":
