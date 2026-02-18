@@ -37,5 +37,13 @@ def upsert_chunks(chunks: Iterable[str], vectors: Iterable[List[float]], source:
 
 
 def search_similar(vector: List[float], limit: int) -> List[ScoredPoint]:
-    ensure_collection()
-    return _client.search(collection_name=COLLECTION_NAME, query_vector=vector, limit=limit)
+    # ensure_collection()
+    # return _client.search(collection_name=COLLECTION_NAME, query_vector=vector, limit=limit)
+    response = _client.query_points(
+        collection_name=COLLECTION_NAME,
+        query=vector,
+        limit=limit,
+        score_threshold=0.5
+    )
+
+    return response.points

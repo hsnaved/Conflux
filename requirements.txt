@@ -48,3 +48,6 @@ numpy==2.0.2
 openai==2.20.0
 orjson==3.11.5
 packaging
+qdrant-client
+sentence_transformers
+pypdf

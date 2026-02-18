@@ -5,12 +5,12 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 
-from config import CHUNK_OVERLAP, CHUNK_SIZE, LLM_MODEL_NAME, SEARCH_LIMIT
+from config import CHUNK_OVERLAP, CHUNK_SIZE, LLM_MODEL_NAME, SEARCH_LIMIT, logger
 from services.embedding import embed_text, embed_texts
 from services.vectorstore import ensure_collection, search_similar, upsert_chunks
 
 _splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-llm = ChatOpenAI(model_name=LLM_MODEL_NAME, temperature=0)
+# llm = ChatOpenAI(model_name=LLM_MODEL_NAME, temperature=0)
 
 
 def extract_text_from_pdf(path: Path) -> str:
@@ -25,7 +25,9 @@ def chunk_text(text: str) -> List[str]:
 
 def ingest_pdf(path: Path, source_name: str) -> int:
     text = extract_text_from_pdf(path)
+    logger.info("Extracted %d characters from PDF", len(text))
     chunks = chunk_text(text)
+    logger.info("Split text into %d chunks", len(chunks))
     vectors = embed_texts(chunks)
     ensure_collection()
     return upsert_chunks(chunks, vectors, source=source_name)
@@ -51,10 +53,18 @@ def build_prompt(context: str, question: str) -> str:
 
 
 def answer_question(question: str, limit: int = SEARCH_LIMIT) -> tuple[str, int]:
+    logger.info("Answering question: %s (limit=%d)", question, limit)
     query_vector = embed_text(question)
+    logger.info(query_vector)
     ensure_collection()
     results = search_similar(query_vector, limit)
-    context = build_context(results)
-    prompt = build_prompt(context, question)
-    response = llm.invoke(prompt)
-    return response.content, len(results)
+    # Extract text chunks
+    contexts = [point.payload["text"] for point in results]
+
+    # Join them
+    context_text = "\n".join(contexts)
+    # context = build_context(results)
+    # prompt = build_prompt(context, question)
+    # response = llm.invoke(prompt)
+    # return response.content, len(results)
+    return context_text, len(results)
