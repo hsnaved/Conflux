@@ -1,9 +1,9 @@
-from pathlib import Path
-from typing import List
-
+﻿from pathlib import Path
+from typing import List, Tuple
 import os
+
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 
 from config import (
@@ -11,76 +11,85 @@ from config import (
     CHUNK_SIZE,
     LLM_MODEL_NAME,
     SEARCH_LIMIT,
+    OPENAI_API_KEY,
     CONFLUENCE_BASE_URL,
     CONFLUENCE_USERNAME,
     CONFLUENCE_API_TOKEN,
-    CONFLUENCE_SPACE_KEY
+    CONFLUENCE_SPACE_KEY,
 )
+
 from services.embedding import embed_text, embed_texts
 from services.vectorstore import ensure_collection, search_similar, upsert_chunks
 from services.confluence import fetch_confluence_pages
 
-# ensure OpenAI key exists
-if not os.getenv("OPENAI_API_KEY"):
-    raise RuntimeError("OPENAI_API_KEY environment variable is required for ChatOpenAI")
 
-_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-llm = ChatOpenAI(model_name=LLM_MODEL_NAME, temperature=0)
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
+)
 
-def extract_text_from_pdf(path: Path) -> str:
-    loader = PyPDFLoader(str(path))
-    documents = loader.load()
-    return "\n".join(doc.page_content for doc in documents)
+_llm = None
+
+
+def get_llm() -> ChatOpenAI:
+    global _llm
+
+    if _llm:
+        return _llm
+
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not set")
+
+    _llm = ChatOpenAI(
+        model=LLM_MODEL_NAME,
+        temperature=0,
+        api_key=OPENAI_API_KEY,
+    )
+
+    return _llm
+
 
 def chunk_text(text: str) -> List[str]:
+    if not text:
+        return []
     return _splitter.split_text(text)
 
-def ingest_pdf(path: Path, source_name: str) -> int:
-    text = extract_text_from_pdf(path)
-    chunks = chunk_text(text)
-    vectors = embed_texts(chunks)
-    ensure_collection()
-    return upsert_chunks(chunks, vectors, source=source_name)
 
-def ingest_confluence() -> int:
-    pages = fetch_confluence_pages(
-        CONFLUENCE_BASE_URL,
-        CONFLUENCE_USERNAME,
-        CONFLUENCE_API_TOKEN,
-        CONFLUENCE_SPACE_KEY
-    )
-    total_chunks = 0
-    ensure_collection()
-    for page in pages:
-        text = page['content']
-        chunks = chunk_text(text)
-        vectors = embed_texts(chunks)
-        chunks_added = upsert_chunks(chunks, vectors, source="confluence")
-        total_chunks += chunks_added
-    return total_chunks
+def answer_question(question: str, limit: int = SEARCH_LIMIT) -> Tuple[str, int]:
+    if not question:
+        return "No question provided.", 0
 
-def build_context(results) -> str:
-    return "\n\n".join([res.payload.get("text", "") for res in results if res.payload])
-
-def build_prompt(context: str, question: str) -> str:
-    return f"""
-    You are a helpful assistant.
-
-    Answer the question ONLY using the provided context.
-    If the answer is not found in the context, say "I don't know".
-
-    Context:
-    {context}
-
-    Question:
-    {question}
-    """
-
-def answer_question(question: str, limit: int = SEARCH_LIMIT) -> tuple[str, int]:
     query_vector = embed_text(question)
+
+    if not query_vector:
+        return "Embedding failed.", 0
+
     ensure_collection()
     results = search_similar(query_vector, limit)
-    context = build_context(results)
-    prompt = build_prompt(context, question)
+
+    context = "\n\n".join(
+        res.payload.get("text", "")
+        for res in results
+        if res.payload and res.payload.get("text")
+    )
+
+    if not context:
+        return "I don't know.", 0
+
+    prompt = f"""
+You are a helpful assistant.
+
+Answer ONLY using the provided context.
+If answer is not found, say "I don't know".
+
+Context:
+{context}
+
+Question:
+{question}
+"""
+
+    llm = get_llm()
     response = llm.invoke(prompt)
+
     return response.content, len(results)

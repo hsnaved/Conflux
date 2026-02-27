@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "conflux-rag": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/.venv/Scripts/python",
+      "args": ["-m", "mcp_server"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONUNBUFFERED": "1",
+        "ENV": "development"
+      }
+    }
+  }
+}
